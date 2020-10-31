@@ -32,6 +32,11 @@
       <p><canvas id="upcoming"></canvas></p>
       <p>score <span id="score">00000</span></p>
       <p>rows <span id="rows">0</span></p>
+      <p>perfection 
+        <input type="range" id="perfection" name="perfection" min="10" max="100" step="10" oninput="updateTextInput(this.value);">
+        <span id="perfection_text">80</span>
+      </p>
+      <p>blocks per minute <span id="blocksPerMin">0</span></p>
     </div>
     <canvas id="canvas">
       Sorry, this example cannot be run because your browser does not support the &lt;canvas&gt; element
@@ -40,6 +45,12 @@
 
   <script src="stats.js"></script>
   <script>
+
+    document.getElementById('perfection').value = 80;
+
+    function updateTextInput(val) {
+          document.getElementById('perfection_text').innerHTML=val; 
+    }
 
     //-------------------------------------------------------------------------
     // base helper methods
@@ -94,7 +105,10 @@
         score,         // the current score
         vscore,        // the currently displayed score (it catches up to score in small chunks - like a spinning slot machine)
         rows,          // number of completed rows in the current game
-        step;          // how long before current piece drops by 1 row
+        blocksDone,    // number of blocks removed in the current game
+        step,          // how long before current piece drops by 1 row
+        startTime,     // time of game start
+        blocksPerMin;  // total blocks removed per minute
 
     //-------------------------------------------------------------------------
     // tetris pieces
@@ -221,6 +235,7 @@
           case KEY.UP:     actions.push(DIR.UP);    handled = true; break;
           case KEY.DOWN:   actions.push(DIR.DOWN);  handled = true; break;
           case KEY.ESC:    lose();                  handled = true; break;
+          case KEY.SPACE:  dropDown();              handled = true; break;
         }
       }
       else if (ev.keyCode == KEY.SPACE) {
@@ -243,21 +258,29 @@
     function addScore(n)            { score = score + n;   }
     function clearScore()           { setScore(0); }
     function clearRows()            { setRows(0); }
+    function clearBlocksDone()      { setBlocksDone(0); }
+    function clearBlocksPerMin()    { blocksPerMin = 0; invalidateBlocksPerMin(); }
     function setRows(n)             { rows = n; step = Math.max(speed.min, speed.start - (speed.decrement*rows)); invalidateRows(); }
     function addRows(n)             { setRows(rows + n); }
+    function setBlocksDone(n)       { blocksDone = n; setBlocksPerMin(blocksDone * 60* 1000 / ((new Date()).getTime() - startTime.getTime()))}
+    function addBlocksDone(n)       { setBlocksDone(blocksDone + n); }
     function getBlock(x,y)          { return (blocks && blocks[x] ? blocks[x][y] : null); }
     function setBlock(x,y,type)     { blocks[x] = blocks[x] || []; blocks[x][y] = type; invalidate(); }
     function clearBlocks()          { blocks = []; invalidate(); }
     function clearActions()         { actions = []; }
     function setCurrentPiece(piece) { current = piece || randomPiece(); invalidate();     }
     function setNextPiece(piece)    { next    = piece || randomPiece(); invalidateNext(); }
+    function setBlocksPerMin(n)     { blocksPerMin = n; invalidateBlocksPerMin(); }
 
     function reset() {
       dt = 0;
+      startTime = new Date();
       clearActions();
       clearBlocks();
       clearRows();
+      clearBlocksDone();
       clearScore();
+      clearBlocksPerMin();
       setCurrentPiece(next);
       setNextPiece();
     }
@@ -303,11 +326,15 @@
     }
 
     function rotate() {
-      var newdir = (current.dir == DIR.MAX ? DIR.MIN : current.dir + 1);
+      var newdir = (current.dir == DIR.MIN ? DIR.MAX : current.dir - 1);
       if (unoccupied(current.type, current.x, current.y, newdir)) {
         current.dir = newdir;
         invalidate();
       }
+    }
+
+    function dropDown() {
+        while(move(DIR.DOWN));
     }
 
     function drop() {
@@ -331,22 +358,24 @@
     }
 
     function removeLines() {
-      var x, y, complete, n = 0;
+      var x, y, complete, lines = 0, done = 0;
       for(y = ny ; y > 0 ; --y) {
-        complete = true;
+        complete = 0;
         for(x = 0 ; x < nx ; ++x) {
-          if (!getBlock(x, y))
-            complete = false;
+          if (getBlock(x, y))
+            complete++;
         }
-        if (complete) {
+        if (complete * 100 / nx >= document.getElementById('perfection').value) {
           removeLine(y);
           y = y + 1; // recheck same line
-          n++;
+          lines++;
+          done += complete;
         }
       }
-      if (n > 0) {
-        addRows(n);
-        addScore(100*Math.pow(2,n-1)); // 1: 100, 2: 200, 3: 400, 4: 800
+      if (lines > 0) {
+        addRows(lines);
+        addBlocksDone(done);
+        addScore(100*Math.pow(2,lines-1)); // 1: 100, 2: 200, 3: 400, 4: 800
       }
     }
 
@@ -364,10 +393,11 @@
 
     var invalid = {};
 
-    function invalidate()         { invalid.court  = true; }
-    function invalidateNext()     { invalid.next   = true; }
-    function invalidateScore()    { invalid.score  = true; }
-    function invalidateRows()     { invalid.rows   = true; }
+    function invalidate()             { invalid.court        = true; }
+    function invalidateNext()         { invalid.next         = true; }
+    function invalidateScore()        { invalid.score        = true; }
+    function invalidateRows()         { invalid.rows         = true; }
+    function invalidateBlocksPerMin() { invalid.blocksPerMin = true; }
 
     function draw() {
       ctx.save();
@@ -377,6 +407,7 @@
       drawNext();
       drawScore();
       drawRows();
+      drawBlocksPerMin();
       ctx.restore();
     }
 
@@ -422,6 +453,13 @@
       if (invalid.rows) {
         html('rows', rows);
         invalid.rows = false;
+      }
+    }
+
+    function drawBlocksPerMin() {
+      if (invalid.blocksPerMin) {
+        html('blocksPerMin', blocksPerMin.toFixed(2));
+        invalid.blocksPerMin = false;
       }
     }
 
